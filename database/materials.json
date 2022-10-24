@@ -1,0 +1,22 @@
+{
+    "materials": [
+      {
+        "car_type": "SEDAN",
+        "max_production_line": 4, 
+        "components": {
+          "wheel": 100,
+          "chassis": 10,
+          "engine": 15
+        }
+      },
+      {
+        "car_type": "SUV",
+        "max_production_line": 5,
+        "components": {
+          "wheel": 50,
+          "chassis": 6,
+          "engine": 6
+        }
+      }
+    ]
+  }
