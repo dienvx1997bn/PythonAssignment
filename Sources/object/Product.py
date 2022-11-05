@@ -14,7 +14,16 @@ column_dict = {
 }
 
 class Product:
-    def __init__(self):
-        pass
+    def __init__(self, **kwargs):
+        self.id = kwargs["id"]
+        self.name = kwargs["name"]
+        self.materials = kwargs["materials"]
+        self.category = kwargs["category"]
+        self.cost = kwargs["cost"]
+        self.produceTime = kwargs["produceTime"]
+        self.price = kwargs["price"]
+        self.progress = kwargs["progress"]
+        self.qcStatus = kwargs["qcStatus"]
+        self.assemblyId = kwargs["assemblyId"]
+        self.workerId = kwargs["workerId"]
 
-    

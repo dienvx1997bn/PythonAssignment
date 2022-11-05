@@ -14,13 +14,12 @@ column_dict = {
 
 class Assembly:
 
-    def __init__(self, id, category, productId, hasWorker, hasProduct, status):
-        self.id = id
-        self.category = category
-        self.productId = productId
-        self.hasWorker = hasWorker
-        self.hasProduct = hasProduct
-        self.status = status
+    def __init__(self, **kwargs):
+        self.id = kwargs["id"]
+        self.category = kwargs["category"]
+        self.productId = kwargs["productId"]
+        self.workerId = kwargs["workerId"]
+        self.status = kwargs["status"]
         
         #global variable
         self.car_type = None
@@ -30,6 +29,7 @@ class Assembly:
         # Creating lock for threads
         self.lock_for_take_component = threading.Lock()
 
+    def connect_sql(self):
         #init sql client
         self.mydb = mysql.connector.connect(
             host = "sql12.freesqldatabase.com",
@@ -40,49 +40,7 @@ class Assembly:
         self.mycursor = self.mydb.cursor()
 
 
-    def get_requirements(self):
-        sql = "SELECT * FROM requirements WHERE category =%s"
-        val = (self.car_type,)
-        self.mycursor.execute(sql, val)
-        self.query_return = self.mycursor.fetchall()
-        # print(self.query_return)
-
-
-    def check_and_take_component(self, product_requirement):
-        is_available = False
-        material_dict = dict(eval(product_requirement[3]))
-        # print(material_dict)
-        # for i in material_dict.keys():
-        #     print(i)
-        self.lock_for_take_component.acquire()
-        error = 0
-        for component in material_dict.keys():
-            sql = f"SELECT * FROM materials WHERE id ='{component}'"
-            # print(f"sql {sql}")
-            self.mycursor.execute(sql)
-            query_return = self.mycursor.fetchall()
-            # print(query_return)
-            query_return = query_return[0] # unpacking
-            if(query_return[column_dict["amount"]] > query_return[column_dict["quantityPerUnit"]]):
-                pass
-            else:
-                error = error + 1
-        
-        # if have all the things needed, take and update databae
-        if(error == 0):
-            for component in material_dict.keys():
-                sql = f"SELECT * FROM materials WHERE id ='{component}'"
-                self.mycursor.execute(sql)
-                query_return = self.mycursor.fetchall()
-                query_return = query_return[0] # unpacking
-
-                amout_new = query_return[column_dict["amount"]] - query_return[column_dict["quantityPerUnit"]]
-                sql = f"UPDATE materials SET amount = {amout_new} WHERE id ='{component}"
-                self.mycursor.execute(sql)
-                self.mydb.commit()
-            is_available = True
-        self.lock_for_take_component.release()
-        return is_available
+    
 
     def assembly_running(self, product_requirement):
 
