@@ -3,11 +3,10 @@ Ref link: https://www.pythontutorial.net/python-concurrency/python-threading/
 """
 import threading
 import mysql.connector
-import uuid
+import logging
 
 from object.Assembly import Assembly
 from object.Worker import Worker
-from object.Product import Product
 
 
 worker_column_dict = {
@@ -37,22 +36,19 @@ mydb = mysql.connector.connect(
 mycursor = mydb.cursor()
 
 
-list_car_type = {"SUV"}
+list_car_type = {"SUV", "SEDAN", "MINIVAN"}
 
-worker_list = []
-assembly_list = []
-product_list = []
+worker_available_list = []
+assembly_available_list = []
 
-def create_assembly(car_type):
-    assembly = Assembly()
-    # assembly.assembly_manufacturing(car_type)
+assembly_working_list = []
 
 def get_worker_available():
     sql = "SELECT * FROM workers where workingShift = 'ON_SHIFT'"
     mycursor.execute(sql)
     query_return = mycursor.fetchall()
     for worker_info in query_return:
-        worker_list.append(Worker(id = worker_info[worker_column_dict["id"]],
+        worker_available_list.append(Worker(id = worker_info[worker_column_dict["id"]],
                         name = worker_info[worker_column_dict["name"]],
                         specialization = worker_info[worker_column_dict["specialization"]],
                         workingShift = worker_info[worker_column_dict["workingShift"]],
@@ -65,21 +61,21 @@ def get_assembly_available():
     query_return = mycursor.fetchall()
     # print(query_return)
     for assembly_info in query_return:
-        assembly_list.append(Assembly(id = assembly_info[assembly_column_dict["id"]], 
+        assembly_available_list.append(Assembly(id = assembly_info[assembly_column_dict["id"]], 
                                         category = assembly_info[assembly_column_dict["category"]],
                                         productId = assembly_info[assembly_column_dict["productId"]],
                                         workerId = assembly_info[assembly_column_dict["workerId"]],
                                         status = assembly_info[assembly_column_dict["status"]]))
-    # print(assembly_list)
-    # for x in assembly_list:
+    # print(assembly_available_list)
+    # for x in assembly_available_list:
     #     print(f"Assembly(x).id {x.id}")
 
 
 def fetch_local_database():
-    global worker_list 
-    worker_list = []
-    global assembly_list
-    assembly_list = []
+    global worker_available_list 
+    worker_available_list = []
+    global assembly_available_list
+    assembly_available_list = []
 
     get_worker_available()
     get_assembly_available()
@@ -95,25 +91,21 @@ def commit_to_database(worker, assembly):
 
 
 def assign_worker_to_assembly():
-    # process assembly
-    threads = []
-
-    #remember to add lock for threading
-
+    
     for car_type in list_car_type:
         
         while(1):
             worker = None
             assembly = None
             # if worker and assembly are on free
-            for x in worker_list:
+            for x in worker_available_list:
                 if x.specialization == car_type and x.workingShift == 'ON_SHIFT' and x.assemblyId == None:
                     worker = x
                     break
             if(worker == None):
                 break
             
-            for x in assembly_list:
+            for x in assembly_available_list:
                 if x.category == car_type and x.workerId == None and x.status == 'STOPPED':
                     assembly = x
                     break
@@ -124,24 +116,53 @@ def assign_worker_to_assembly():
             assembly.workerId = 1
             worker.assemblyId = assembly.id
 
+            # update db
             commit_to_database(worker = worker, assembly = assembly)
             fetch_local_database()
 
 
-        # if(car_type == worker.category for worker in worker_list) and (car_type == assembly.category for assembly in assembly_list):
-    #         # creating threads: 
-    #         t = threading.Thread(target=create_assembly, args=(car_type,))
-    #         threads.append(t)
-    #         t.start()
-    
-    # #wait to finish
-    # for t in threads:
-    #     t.join()
+def get_assembly_working():
+    sql = "SELECT * FROM assemblyLines where status ='PREPARING'"
+    mycursor.execute(sql)
+    query_return = mycursor.fetchall()
+    # print(query_return)
+    for assembly_info in query_return:
+        assembly_working_list.append(Assembly(id = assembly_info[assembly_column_dict["id"]], 
+                                        category = assembly_info[assembly_column_dict["category"]],
+                                        productId = assembly_info[assembly_column_dict["productId"]],
+                                        workerId = assembly_info[assembly_column_dict["workerId"]],
+                                        status = assembly_info[assembly_column_dict["status"]]))
+
+def assembly_running(assembly):
+    assembly.assembly_manufacturing()
+
+def process_assembly():
+    threads = []
+    for assembly in assembly_working_list:
+        # creating threads: 
+        t = threading.Thread(target=assembly_running, args=(assembly,))
+        threads.append(t)
+        t.start()
+        logging.info(f"assembly {assembly.id} start running")
+
+        sql = f"UPDATE assemblyLines SET  status = 'RUNNING' WHERE id = '{assembly.id}'"
+        mycursor.execute(sql)
+        mydb.commit()
+
+    #wait to finish
+    for t in threads:
+        t.join()
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+    logging.info("START")
+
     fetch_local_database()
     assign_worker_to_assembly()
+
+    get_assembly_working()
+    process_assembly()
 
 if __name__=='__main__':
     main()

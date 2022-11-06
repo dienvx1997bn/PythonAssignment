@@ -1,7 +1,13 @@
 import threading
 import time
+import uuid
+import logging
+import random
+from datetime import datetime
 
 import mysql.connector
+from object.Product import Product
+
 
 column_dict = {
     "id":0,
@@ -20,12 +26,9 @@ class Assembly:
         self.productId = kwargs["productId"]
         self.workerId = kwargs["workerId"]
         self.status = kwargs["status"]
+        self.production_list = []
+        self.production_current = None
         
-        #global variable
-        self.car_type = None
-        self.query_return = ""
-        self.sedan_produced = 0
-        self.sedan_fail = 0
         # Creating lock for threads
         self.lock_for_take_component = threading.Lock()
 
@@ -38,43 +41,102 @@ class Assembly:
             database="sql12532759"
         )
         self.mycursor = self.mydb.cursor()
-
-
     
+    def get_requirements(self):
+        sql = f"SELECT * FROM requirements where category ='{self.category}'"
+        self.mycursor.execute(sql)
+        self.requirements = self.mycursor.fetchall()
+        self.requirements = self.requirements[0] #get the first element due to the sql return tuple 
+        # print(self.query_return)
 
-    def assembly_running(self, product_requirement):
-
-        while(True):
-            if self.check_and_take_component(product_requirement):
-                continue
-            else:
-                break
+    def take_componments(self, materials):
+        materials_dict = dict(eval(materials))
+        err = 0
+        # enter blocking
+        self.lock_for_take_component.acquire()
+        # check
+        for id, num in materials_dict.items():
+            sql = f"SELECT * FROM materials where id ='{id}'"
+            self.mycursor.execute(sql)
+            query_return = self.mycursor.fetchall()
+            material_available  = query_return[0][4]
+            if material_available < num:
+                err = err + 1
         
-        #start process
-        xtime = time.perf_counter()
-        time.sleep(3)
-        #end process
-        xtime = time.perf_counter()
-        self.sedan_produced += 1
+        if err != 0:
+            self.lock_for_take_component.release()
+            return False
+        
+        # take and update
+        for id, num in materials_dict.items():
+            sql = f"SELECT * FROM materials where id ='{id}'"
+            self.mycursor.execute(sql)
+            query_return = self.mycursor.fetchall()
+            material_available  = query_return[0][4]
+
+            sql = f"UPDATE materials SET amount = {material_available - num} WHERE id = '{id}'"
+            self.mycursor.execute(sql)
+            self.mydb.commit()
+        # exit blocking
+        self.lock_for_take_component.release()
+        return True
 
 
-    def assembly_manufacturing(self, car_type):
-        self.car_type = car_type
+    def prepare_new_product(self):
+        #new product, update table
+        self.timeNedded = self.requirements[5]
+        product = Product(id = str(uuid.uuid4())[0:8], 
+                            name = self.requirements[2], 
+                            materials = self.requirements[3], 
+                            category = self.category,
+                            cost = 0,   # TODO: caculate
+                            produceTime = 0,
+                            price = 0,
+                            progress = 'WAITING',
+                            qcStatus = None,
+                            assemblyId = self.id,
+                            workerId = self.workerId)
+        self.production_current = product
+        self.production_list.append(self.production_current)
+        sql = "INSERT INTO products (id, name, materials, category, progress, assemblyId, workerId) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        val = (product.id, product.name, product.materials, product.category, product.progress, product.assemblyId, product.workerId)
+        self.mycursor.execute(sql, val)
+        self.mydb.commit()
+
+        logging.info(f"assembly {self.id} has new product {product.id}")
+        #processing, update table
+        product.product_start_manufacturing()
+
+    def processing_new_product(self):
+        # wait for processing
+        time.sleep(self.timeNedded)
+    
+    def finish_new_product(self):
+        self.production_current.product_end_manufacturing()
+
+    def qa_check(self):
+        magic_num = random.randrange(1, 100)
+        if(magic_num < 25):
+            self.production_current.qc_check("FAIL")
+        else:
+            self.production_current.qc_check("PASS")
+
+
+    def assembly_manufacturing(self):
+        self.connect_sql()
         self.get_requirements()
-        
-        # # start production line
-        start_time = time.perf_counter()
-        threads = []
-        requirement_list = self.query_return
-        for product_requirement in requirement_list:
-            # creating threads: 
-            t = threading.Thread(target=self.assembly_running, args=(product_requirement, ))
-            threads.append(t)
-            t.start()
-        
-        #wait to finish
-        for t in threads:
-            t.join()
 
-        end_time = time.perf_counter()
-        print(f'It took {end_time- start_time: f} second(s) to complete. {self.car_type}')
+        while(True):    # loop for manufacturing
+            # take componments
+            if self.take_componments(self.requirements[3]):
+                self.prepare_new_product()
+                self.processing_new_product()
+                self.qa_check()
+                self.finish_new_product()
+                
+            else: 
+                logging.info(f"assembly {self.id} finish all product")
+                sql = f"UPDATE assemblyLines SET  status = 'FINISH' WHERE id = '{self.id}'"
+                self.mycursor.execute(sql)
+                self.mydb.commit()
+                break
