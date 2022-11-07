@@ -26,7 +26,8 @@ class Assembly:
         self.production_list = []
         self.production_current = None
         self.product_material_current = []
-        self.requirements = None
+        self.requirements_current = None
+        self.requirements_list = []
 
         #init sql client
         self.mydb = mysql.connector.connect(
@@ -43,11 +44,11 @@ class Assembly:
         sql = f"SELECT * FROM requirements where category ='{self.category}'"
         self.mycursor.execute(sql)
         queryreturn = self.mycursor.fetchall()
-        # get the first element due to the sql return tuple
-        queryreturn = queryreturn[0]
-        self.requirements = Requirement(id=queryreturn[0], category=queryreturn[1],
-                                        name=queryreturn[2], material=eval(queryreturn[3]),
-                                        time_needed=queryreturn[5])
+
+        for requirement in queryreturn:
+            self.requirements_list.append(Requirement(id=requirement[0], category=requirement[1],
+                                                 name=requirement[2], material=eval(requirement[3]),
+                                                 time_needed=requirement[5]))
 
 
     def take_componments(self, materials_dict):
@@ -95,8 +96,8 @@ class Assembly:
     def prepare_new_product(self):
         """new product, update table"""
         product = Product(product_id=str(uuid.uuid4())[0:8],
-                          name=self.requirements.name,
-                          materials=self.requirements.material,
+                          name=self.requirements_current.name,
+                          materials=self.requirements_current.material,
                           category=self.category,
                           cost = 0,
                           price = 0,
@@ -126,7 +127,7 @@ class Assembly:
 
     def processing_new_product(self):
         """wait for processing"""
-        time.sleep(self.requirements.time_needed)
+        time.sleep(self.requirements_current.time_needed)
 
 
     def finish_new_product(self):
@@ -146,17 +147,24 @@ class Assembly:
     def assembly_manufacturing(self):
         """assembly main function"""
         self.get_requirements()
-        # loop for manufacturing
+
         while True:
             # take componments
-            if self.take_componments(self.requirements.material):
-                self.prepare_new_product()
-                self.processing_new_product()
-                self.qa_check()
-                self.finish_new_product()
-            else:
-                logging.info("assembly %s finish all product", self.assembly_id)
-                sql = f"UPDATE assemblyLines SET  status = 'FINISH' WHERE id = '{self.assembly_id}'"
-                self.mycursor.execute(sql)
-                self.mydb.commit()
+            err = False
+            for self.requirements_current in self.requirements_list:
+                if self.take_componments(self.requirements_current.material):
+                    self.prepare_new_product()
+                    self.processing_new_product()
+                    self.qa_check()
+                    self.finish_new_product()
+                    err = False
+                    break
+                else:
+                    err = True
+            if err == True:
                 break
+
+        logging.info("assembly %s finish all product", self.assembly_id)
+        sql = f"UPDATE assemblyLines SET  status = 'FINISH' WHERE id = '{self.assembly_id}'"
+        self.mycursor.execute(sql)
+        self.mydb.commit()
